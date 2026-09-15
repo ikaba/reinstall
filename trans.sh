@@ -7477,7 +7477,8 @@ EOF
         # %RHELScsi.DeviceDesc% = rhelscsi_inst, PCI\VEN_1AF4&DEV_1004&SUBSYS_00081AF4&REV_00
         # %RHELScsi.DeviceDesc% = rhelscsi_inst, PCI\VEN_1AF4&DEV_1048&SUBSYS_11001AF4&REV_01
 
-        local baseurl=https://fedorapeople.org/groups/virt/virtio-win/direct-downloads
+        # local baseurl=https://fedorapeople.org/groups/virt/virtio-win/direct-downloads
+        local baseurl=https://fedora-virt.repo.nfrance.com/virtio-win/direct-downloads
 
         add_driver_virtio_from_rpm() {
             # fedorapeople 拉黑了华为云，可能有其他厂商也被拉黑
