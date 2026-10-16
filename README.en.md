@@ -59,7 +59,7 @@ The system requirements for the target system are as follows:
 | <img width="16" height="16" src="https://opencloudos.org/qq.ico" /> OpenCloudOS                                                                                                                                                                                                                                                                                        | 8, 9, Stream 23                       | 512 MB \* | 5 GB             |
 | <img width="16" height="16" src="https://www.centos.org/assets/icons/favicon.svg" /> CentOS Stream                                                                                                                                                                                                                                                                     | 9, 10                                 | 512 MB \* | 5 GB             |
 | <img width="16" height="16" src="https://fedoraproject.org/favicon.ico" /> Fedora                                                                                                                                                                                                                                                                                      | 43, 44                                | 512 MB \* | 5 GB             |
-| <img width="16" height="16" src="https://www.openeuler.org/favicon.ico" /> openEuler                                                                                                                                                                                                                                                                                   | 20.03 LTS - 24.03 LTS                 | 512 MB \* | 5 GB             |
+| <img width="16" height="16" src="https://www.openeuler.org/favicon.ico" /> openEuler                                                                                                                                                                                                                                                                                   | 20.03 LTS - 24.03 LTS, 26.09          | 512 MB \* | 5 GB             |
 | <img width="16" height="16" src="https://static.opensuse.org/favicon.ico" /> openSUSE                                                                                                                                                                                                                                                                                  | Leap 16.0, Tumbleweed (Rolling)       | 512 MB \* | 5 GB             |
 | <img width="16" height="16" src="https://nixos.org/favicon.svg" /> NixOS                                                                                                                                                                                                                                                                                               | 26.05                                 | 512 MB    | 5 GB             |
 | <img width="16" height="16" src="https://archlinux.org/static/favicon.png" /> Arch Linux / Arch Linux ARM                                                                                                                                                                                                                                                              | Rolling                               | 512 MB    | 5 GB             |
@@ -171,9 +171,9 @@ bash reinstall.sh anolis      7|8|23
                   fedora      43|44
                   debian      9|10|11|12|13
                   opensuse    16.0|tumbleweed
-                  openeuler   20.03|22.03|24.03
                   alpine      3.21|3.22|3.23|3.24
                   kali        last-snapshot|rolling
+                  openeuler   20.03|22.03|24.03|26.09
                   ubuntu      18.04|20.04|22.04|24.04|26.04 [--minimal]
                   arch
                   gentoo
@@ -189,7 +189,7 @@ bash reinstall.sh anolis      7|8|23
 - `--ssh-port PORT` Change the SSH port
 - `--web-port PORT` Change the Web port (for log observation during installation only)
 - `--frpc-config PATH` Add frpc for intranet tunneling. Parameter can be local filepath or HTTP URL of the configuration file.
-- `--no-cloud-kernel` Avoid using cloud kernel to prevent black or glitch screens on certain machines; applicable to Debian, Ubuntu, and Alpine.
+- `--no-cloud-kernel` Avoid using cloud kernel to prevent black or glitch screens on certain machines; applicable to Debian, Ubuntu, Alpine and openSUSE.
 - `--hold 1` Reboot only into install environment, without running installer, only for SSH connect to test network connection.
 - `--hold 2` Prevent reboot after installation completes, allowing SSH login to modify system content; the system is mounted at `/target` for Debian/Kali and `/os` for other distros.
 
@@ -361,6 +361,7 @@ bash reinstall.sh netboot.xyz
 #### Method 1: Let the Script Automatically Search for ISO
 
 - The script will search for ISOs from <https://ntriver.org/download-windows-office>, a site that collects official ISOs.
+- Searches for 64-bit system images by default, unless `--bit 32` is specified.
 
 ```bash
 bash reinstall.sh windows \

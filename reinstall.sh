@@ -11,7 +11,7 @@ confhome_cn=https://cnb.cool/ikaba/reinstall/-/git/raw/main
 # confhome_cn=https://www.ghproxy.cc/https://raw.githubusercontent.com/ikaba/reinstall/main
 
 # 用于判断 reinstall.sh 和 trans.sh 是否兼容
-SCRIPT_VERSION=4BACD833-A585-23BA-6CBB-9AA4E08E0004
+SCRIPT_VERSION=4BACD833-A585-23BA-6CBB-9AA4E08E0005
 
 # 记录要用到的 windows 程序，运行时输出删除 \r
 WINDOWS_EXES='cmd powershell wmic reg diskpart netsh bcdedit mountvol'
@@ -90,9 +90,9 @@ Usage: $reinstall_____ anolis      7|8|23
                        fedora      43|44
                        debian      9|10|11|12|13
                        opensuse    16.0|tumbleweed
-                       openeuler   20.03|22.03|24.03
                        alpine      3.21|3.22|3.23|3.24
                        kali        last-snapshot|rolling
+                       openeuler   20.03|22.03|24.03|26.09
                        ubuntu      18.04|20.04|22.04|24.04|26.04 [--minimal]
                        arch
                        gentoo
@@ -368,6 +368,10 @@ insert_into_file() {
 
     case "$location" in
     before) line_num=$((line_num - 1)) ;;
+    replace)
+        sed -i "${line_num}d" "$file"
+        line_num=$((line_num - 1))
+        ;;
     after) ;;
     *) return 1 ;;
     esac
@@ -940,6 +944,26 @@ is_have_arm64_version() {
     return 1
 }
 
+is_have_32_bit_version() {
+    case "$version" in
+    2008)
+        return
+        ;;
+    vista | 7 | 8 | 8.1)
+        return
+        ;;
+    10)
+        # iot enterprise 曾经有 32 位版本
+        # en_windows_10_iot_enterprise_version_1909_x86_dvd_b62f9c12.iso
+        case "$edition" in
+        'iot enterprise ltsc 2021') return 1 ;;
+        *) return ;;
+        esac
+        ;;
+    esac
+    return 1
+}
+
 find_windows_iso() {
     parse_windows_image_name || error_and_exit "--image-name wrong: $image_name"
     if ! { [ "$version" = 8 ] || [ "$version" = 8.1 ]; } && [ -z "$edition" ]; then
@@ -959,8 +983,14 @@ find_windows_iso() {
     full_langs="$(lang_convert full_language) $(lang_convert fallback_full_language)"
     full_langs=$(xargs -n 1 <<<"$full_langs" | awk '!seen[$0]++' | xargs)
 
-    case "$basearch" in
-    x86) # 备用，查找功能目前不支持 32 位
+    # 默认 64 位，除非指定了 32 位
+    iso_arch_to_find=$basearch
+    if [ "$bit" = 32 ]; then
+        iso_arch_to_find=x86
+    fi
+
+    case "$iso_arch_to_find" in
+    x86)
         arch_win=x86
         arch_win_vlsc='32-?bit'
         ;;
@@ -1189,6 +1219,7 @@ get_windows_iso_link() {
     echo "Label vlsc: $label_vlsc"
     echo "Page:       $page_url"
     echo "Languages:  $langs $full_langs"
+    echo "Arch:       $arch_win"
     echo
 
     # 先判断是否能自动查找该版本
@@ -1200,8 +1231,12 @@ get_windows_iso_link() {
         error_and_exit "Not support find this iso. Check if --image-name is wrong. Or set --iso manually."
     fi
 
-    if [ "$basearch" = aarch64 ] && ! is_have_arm64_version; then
+    if [ "$arch_win" = arm64 ] && ! is_have_arm64_version; then
         error_and_exit "No ARM64 iso for this Windows Version or Edition."
+    fi
+
+    if [ "$arch_win" = x86 ] && ! is_have_32_bit_version; then
+        error_and_exit "No 32-bit iso for this Windows Version or Edition."
     fi
 
     if [ -n "$label_msdl" ]; then
@@ -1249,29 +1284,72 @@ get_shortest_line_by_field() {
     awk "(NR == 1 || length(\$$field) < length(field)) { line = \$0; field = \$$field } END { print line }"
 }
 
+month_to_mm() {
+    local month="${1,,}"     # 转小写
+    local mon="${month:0:3}" # 取前三个字母
+    local i=0
+    for _mon in jan feb mar apr may jun jul aug sep oct nov dec; do
+        i=$((i + 1))
+        if [ "$mon" = "$_mon" ]; then
+            printf "%02d\n" "$i"
+            return
+        fi
+    done
+    return 1
+}
+
 get_best_windows_iso_line() {
     local lines
     lines=$(cat)
 
+    # 注意
+    # zh-cn_windows_server_2019_x64_dvd_19d65722.iso                    2022-11-15
+    # cn_windows_server_2019_updated_april_2021_x64_dvd_a6dae187.iso    2021-04-20
+    # zh-cn 这种命名比 cn 新，可以通过此判断
+    # 我们已经在前面是先查找 cc-cc 格式，没找到才查找 cc 格式，因此在这里它们不会同时存在，无需处理
+
     # 排除 debug 版
     lines=$(echo "$lines" | grep -Ei -v '_(symbols|debug|debugging|checked)_')
 
-    # 在所有符合的 iso 中
     # 先选择 win10/11 大版本更新的 (version 26h1) 或者有 sp 版本的 (sp1, windows_8.1_with_update_)
-    # 再选择有日期更新的 (updated_july_2026)
-    # 再选择 vl
-    # 再按版本号排序选择最新版
+    if grep_lines=$(grep -Ei "_(version_[0-9h]{4}|sp[1-9]|service_pack|with_update)_" <<<"$lines"); then
+        lines=$grep_lines
+    fi
 
-    # 但是也有例外
-    # zh-cn_windows_server_2019_x64_dvd_19d65722.iso                    2022-11-15
-    # cn_windows_server_2019_updated_april_2021_x64_dvd_a6dae187.iso    2021-04-20
+    # 从 _version_26h1_ 字符串中选出最新的版本号
+    local latest_version=
+    if latest_version=$(awk '{print $1}' <<<"$lines" | grep -Eio "_version_[0-9h]{4}_" |
+        cut -d_ -f3 | sort -r | head -1 | grep .); then
+        info "ISO Latest version"
+        echo "$latest_version" >&2
+        lines=$(grep -Fi "_version_${latest_version}_" <<<"$lines")
+    fi
 
-    for key in '(version_[0-9h]{4}|sp[1-9]|service_pack|with_update)' 'updated' 'vl'; do
-        if grep_lines=$(grep -Ei "_${key}_" <<<"$lines"); then
-            lines=$grep_lines
-        fi
-    done
+    # 从 _updated_sep_2026_ 字符串中选出最新的日期
+    local latest_yyyymm=
+    local latest_updated_keyword=
+    if updated_keywords=$(awk '{print $1}' <<<"$lines" | grep -Eio '_updated_[a-z]+_[0-9]{4}_'); then
+        for _updated_xxx_20xx_ in $updated_keywords; do
+            IFS=_ read -r _ _ month yyyy <<<"$_updated_xxx_20xx_"
+            # alpine 不支持这种写法
+            # yymm=$(date -d "$month 1 $year" "+%y%m")
+            yyyymm="${yyyy}$(month_to_mm "$month")"
+            if [ -z "$latest_yyyymm" ] || [ "$yyyymm" -gt "$latest_yyyymm" ]; then
+                latest_yyyymm=$yyyymm
+                latest_updated_keyword=$_updated_xxx_20xx_
+                info "ISO Latest date"
+                echo "${latest_yyyymm:0:4}-${latest_yyyymm:4:2}" >&2
+            fi
+        done
+        lines=$(grep -Fi "$latest_updated_keyword" <<<"$lines")
+    fi
 
+    # 优先使用 vl
+    if grep_lines=$(grep -Fi "_vl_" <<<"$lines"); then
+        lines=$grep_lines
+    fi
+
+    # 最后按版本号倒序，选出第一行
     echo "$lines" | sort -Vr | head -1
 }
 
@@ -1661,7 +1739,9 @@ Continue?
         if is_in_china; then
             mirror=https://mirror.nju.edu.cn/nix-channels
         else
-            mirror=https://nixos.org/channels
+            # https://nixos.org/channels 没有 ipv6
+            # 且跳转到 https://channels.nixos.org
+            mirror=https://channels.nixos.org
         fi
 
         if is_use_cloud_image; then
@@ -2217,7 +2297,7 @@ verify_os_name() {
         'debian      9|10|11|12|13' \
         'opensuse    16.0|tumbleweed' \
         'alpine      3.21|3.22|3.23|3.24' \
-        'openeuler   20.03|22.03|24.03' \
+        'openeuler   20.03|22.03|24.03|26.09' \
         'ubuntu      18.04|20.04|22.04|24.04|26.04' \
         'kali        last-snapshot|rolling' \
         'redhat' \
@@ -4187,9 +4267,18 @@ exit_if_cant_use_cloud_kernel() {
 can_use_cloud_kernel() {
     # initrd 下也要使用，不要用 <<<
 
-    # 有些虚拟机用了 ahci，但云内核没有 ahci 驱动
-    cloud_eth_modules='ena|gve|mana|virtio_net|xen_netfront|hv_netvsc|vmxnet3|mlx4_en|mlx4_core|mlx5_core|ixgbevf'
-    cloud_blk_modules='ata_generic|ata_piix|pata_legacy|nvme|virtio_blk|virtio_scsi|xen_blkfront|xen_scsifront|hv_storvsc|vmw_pvscsi'
+    if [ "$distro" = opensuse ]; then
+        # kernel-default-base 缺少 ena gve mlx mana 驱动
+        cloud_eth_modules='virtio_net|xen_netfront|hv_netvsc|vmxnet3|e100|e1000|e1000e|8139cp|8139too'
+        cloud_blk_modules='ata_generic|ata_piix|ahci|nvme|virtio_blk|virtio_scsi|xen_blkfront|xen_scsifront|hv_storvsc|vmw_pvscsi'
+    else
+        # debian kali
+        cloud_eth_modules='ena|gve|mana|virtio_net|xen_netfront|hv_netvsc|vmxnet3|mlx4_en|mlx4_core|mlx5_core|ixgbevf'
+        cloud_blk_modules='ata_generic|ata_piix|pata_legacy|nvme|virtio_blk|virtio_scsi|xen_blkfront|xen_scsifront|hv_storvsc|vmw_pvscsi'
+        if { [ "$distro" = debian ] && [ "$releasever" -ge 13 ]; } || [ "$distro" = kali ]; then
+            cloud_blk_modules="$cloud_blk_modules|ahci"
+        fi
+    fi
 
     # disk
     drivers="$(get_disk_drivers $1)"
@@ -4221,6 +4310,8 @@ create_can_use_cloud_kernel_sh() {
         $(get_function get_disk_drivers)
         $(get_function can_use_cloud_kernel)
 
+        distro="$distro"
+        releasever="$releasever"
         can_use_cloud_kernel "\$@"
 EOF
 }
@@ -4335,11 +4426,21 @@ EOF
 EOF
 
     # 判断云镜像 debain 能否用云内核
-    if is_distro_like_debian; then
+    if is_distro_like_debian || [ "$distro" = opensuse ]; then
         create_can_use_cloud_kernel_sh can_use_cloud_kernel.sh
         insert_into_file init before '^exec (/bin/busybox )?switch_root' <<EOF
         cp /can_use_cloud_kernel.sh \$sysroot/
         chmod a+x \$sysroot/can_use_cloud_kernel.sh
+EOF
+    fi
+
+    # 临时修复 liveos getty 运行在 tty0
+    # shellcheck disable=SC2016
+    if [ "$nextos_releasever" = 3.24 ] &&
+        txt_to_grep='done < "$ROOT"/sys/class/tty/"$1"/active' &&
+        grep -qF "$txt_to_grep" init; then
+        insert_into_file init replace "$txt_to_grep" -F <<EOF
+done < <(cat "\$ROOT"/sys/class/tty/"\$1"/active | xargs -n 1)
 EOF
     fi
 }
@@ -4850,6 +4951,7 @@ for o in ci installer debug minimal no-cloud-kernel no-auto-drivers allow-ping f
     hold: sleep: \
     iso: \
     image-name: \
+    bit: \
     boot-wim: \
     img: \
     cloud-data: \
@@ -5170,6 +5272,13 @@ EOF
             error_and_exit "Invalid $1 value: $2"
         fi
         lang=$(echo "$2" | to_lower)
+        shift 2
+        ;;
+    --bit)
+        if ! { [ "$2" = 32 ] || [ "$2" = 64 ]; }; then
+            error_and_exit "Invalid $1 value: $2"
+        fi
+        bit=$2
         shift 2
         ;;
     --)
